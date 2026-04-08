@@ -1,0 +1,391 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// CATALOGOS (configurables desde admin)
+// ============================================
+
+model Clasificacion {
+  id                    String     @id @default(uuid())
+  nombre                String     @unique @db.VarChar(100)
+  color                 String?    @db.VarChar(7)
+  icono                 String?    @db.VarChar(50)
+  requiereManejoEspecial Boolean   @default(false) @map("requiere_manejo_especial")
+  orden                 Int        @default(0)
+  activo                Boolean    @default(true)
+  createdAt             DateTime   @default(now()) @map("created_at")
+  updatedAt             DateTime   @updatedAt @map("updated_at")
+  productos             Producto[]
+
+  @@map("clasificaciones")
+}
+
+model UnidadMedida {
+  id           String     @id @default(uuid())
+  nombre       String     @unique @db.VarChar(50)
+  abreviatura  String     @db.VarChar(10)
+  activo       Boolean    @default(true)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  productos    Producto[]
+
+  @@map("unidades_medida")
+}
+
+model TipoMovimiento {
+  id                  String       @id @default(uuid())
+  nombre              String       @db.VarChar(100)
+  codigo              String       @unique @db.VarChar(20)
+  efectoOrigen        String?      @map("efecto_origen") @db.VarChar(10)
+  efectoDestino       String?      @map("efecto_destino") @db.VarChar(10)
+  requiereAprobacion  Boolean      @default(false) @map("requiere_aprobacion")
+  generaTicket        Boolean      @default(false) @map("genera_ticket")
+  activo              Boolean      @default(true)
+  createdAt           DateTime     @default(now()) @map("created_at")
+  movimientos         Movimiento[]
+
+  @@map("tipos_movimiento")
+}
+
+// ============================================
+// CORE - USUARIOS Y ROLES
+// ============================================
+
+model User {
+  id              String           @id @default(uuid())
+  nombre          String           @db.VarChar(200)
+  email           String           @unique @db.VarChar(255)
+  passwordHash    String           @map("password_hash") @db.VarChar(255)
+  avatarUrl       String?          @map("avatar_url") @db.VarChar(500)
+  activo          Boolean          @default(true)
+  ultimoLogin     DateTime?        @map("ultimo_login")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
+
+  userRoles       UserRol[]
+  userPuntos      UserPuntoStock[]
+  movimientos     Movimiento[]     @relation("MovimientoUsuario")
+  solicitudesCreadas   Solicitud[]  @relation("SolicitudSolicitante")
+  solicitudesAprobadas Solicitud[]  @relation("SolicitudAprobador")
+  notificaciones  Notificacion[]
+  logAuditoria    LogAuditoria[]
+  movimientosAnulados Movimiento[] @relation("MovimientoAnulador")
+
+  @@map("users")
+}
+
+model Rol {
+  id                     String    @id @default(uuid())
+  nombre                 String    @unique @db.VarChar(100)
+  descripcion            String?   @db.Text
+  esAdmin                Boolean   @default(false) @map("es_admin")
+  puedeAprobar           Boolean   @default(false) @map("puede_aprobar")
+  puedeCrearProductos    Boolean   @default(true) @map("puede_crear_productos")
+  puedeVerReportes       Boolean   @default(false) @map("puede_ver_reportes")
+  puedeGestionarUsuarios Boolean   @default(false) @map("puede_gestionar_usuarios")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  userRoles              UserRol[]
+
+  @@map("roles")
+}
+
+model UserRol {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  rolId  String @map("rol_id")
+  user   User   @relation(fields: [userId], references: [id])
+  rol    Rol    @relation(fields: [rolId], references: [id])
+
+  @@unique([userId, rolId])
+  @@map("user_roles")
+}
+
+// ============================================
+// PUNTOS DE STOCK
+// ============================================
+
+model PuntoStock {
+  id            String           @id @default(uuid())
+  nombre        String           @db.VarChar(200)
+  codigo        String           @unique @db.VarChar(20)
+  tipo          String           @db.VarChar(50) // "deposito", "area_productiva"
+  descripcion   String?          @db.Text
+  ubicacion     String?          @db.VarChar(200)
+  puedeAprobar  Boolean          @default(false) @map("puede_aprobar")
+  color         String?          @db.VarChar(7)
+  icono         String?          @db.VarChar(50)
+  orden         Int              @default(0)
+  activo        Boolean          @default(true)
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  deletedAt     DateTime?        @map("deleted_at")
+
+  userPuntos          UserPuntoStock[]
+  stockProductos      StockPorPunto[]
+  productosCreados    Producto[]         @relation("ProductoCreadoPor")
+  movimientosOrigen   Movimiento[]       @relation("MovimientoOrigen")
+  movimientosDestino  Movimiento[]       @relation("MovimientoDestino")
+  solicitudesOrigen   Solicitud[]        @relation("SolicitudOrigen")
+  solicitudesDestino  Solicitud[]        @relation("SolicitudDestino")
+
+  @@map("puntos_stock")
+}
+
+model UserPuntoStock {
+  id           String     @id @default(uuid())
+  userId       String     @map("user_id")
+  puntoStockId String     @map("punto_stock_id")
+  esEncargado  Boolean    @default(false) @map("es_encargado")
+  user         User       @relation(fields: [userId], references: [id])
+  puntoStock   PuntoStock @relation(fields: [puntoStockId], references: [id])
+
+  @@unique([userId, puntoStockId])
+  @@index([puntoStockId])
+  @@map("user_punto_stock")
+}
+
+// ============================================
+// PRODUCTOS Y STOCK
+// ============================================
+
+model Producto {
+  id                String          @id @default(uuid())
+  codigo            String          @unique @db.VarChar(10)
+  descripcion       String          @db.VarChar(500)
+  clasificacionId   String?         @map("clasificacion_id")
+  unidadId          String          @map("unidad_id")
+  costoCompra       Decimal         @default(0) @map("costo_compra") @db.Decimal(15, 2)
+  costoVenta        Decimal         @default(0) @map("costo_venta") @db.Decimal(15, 2)
+  stockMinimo       Decimal         @default(0) @map("stock_minimo") @db.Decimal(15, 3)
+  imagenUrl         String?         @map("imagen_url") @db.VarChar(500)
+  notas             String?         @db.Text
+  creadoPorPuntoId  String?         @map("creado_por_punto_id")
+  activo            Boolean         @default(true)
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  deletedAt         DateTime?       @map("deleted_at")
+
+  clasificacion     Clasificacion?  @relation(fields: [clasificacionId], references: [id])
+  unidad            UnidadMedida    @relation(fields: [unidadId], references: [id])
+  creadoPorPunto    PuntoStock?     @relation("ProductoCreadoPor", fields: [creadoPorPuntoId], references: [id])
+  stockPorPunto     StockPorPunto[]
+  movimientoDetalles MovimientoDetalle[]
+  solicitudDetalles  SolicitudDetalle[]
+
+  @@index([clasificacionId])
+  @@index([creadoPorPuntoId])
+  @@map("productos")
+}
+
+model StockPorPunto {
+  id           String     @id @default(uuid())
+  productoId   String     @map("producto_id")
+  puntoStockId String     @map("punto_stock_id")
+  cantidad     Decimal    @default(0) @db.Decimal(15, 3)
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  producto     Producto   @relation(fields: [productoId], references: [id])
+  puntoStock   PuntoStock @relation(fields: [puntoStockId], references: [id])
+
+  @@unique([productoId, puntoStockId])
+  @@index([puntoStockId])
+  @@index([productoId])
+  @@map("stock_por_punto")
+}
+
+// ============================================
+// PROVEEDORES
+// ============================================
+
+model Proveedor {
+  id              String       @id @default(uuid())
+  nombre          String       @db.VarChar(300)
+  ruc             String?      @db.VarChar(20)
+  telefono        String?      @db.VarChar(50)
+  email           String?      @db.VarChar(255)
+  direccion       String?      @db.Text
+  contactoNombre  String?      @map("contacto_nombre") @db.VarChar(200)
+  notas           String?      @db.Text
+  activo          Boolean      @default(true)
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  deletedAt       DateTime?    @map("deleted_at")
+  movimientos     Movimiento[]
+
+  @@map("proveedores")
+}
+
+// ============================================
+// MOVIMIENTOS
+// ============================================
+
+model Movimiento {
+  id                String             @id @default(uuid())
+  tipoMovimientoId  String             @map("tipo_movimiento_id")
+  fecha             DateTime           @default(now())
+  puntoOrigenId     String?            @map("punto_origen_id")
+  puntoDestinoId    String?            @map("punto_destino_id")
+  proveedorId       String?            @map("proveedor_id")
+  flete             Decimal            @default(0) @db.Decimal(15, 2)
+  observacion       String?            @db.Text
+  usuarioId         String             @map("usuario_id")
+  ticketNumero      String?            @unique @map("ticket_numero") @db.VarChar(20)
+  solicitudId       String?            @map("solicitud_id")
+  anulado           Boolean            @default(false)
+  anuladoPorId      String?            @map("anulado_por_id")
+  anuladoMotivo     String?            @map("anulado_motivo") @db.Text
+  createdAt         DateTime           @default(now()) @map("created_at")
+
+  tipoMovimiento    TipoMovimiento     @relation(fields: [tipoMovimientoId], references: [id])
+  puntoOrigen       PuntoStock?        @relation("MovimientoOrigen", fields: [puntoOrigenId], references: [id])
+  puntoDestino      PuntoStock?        @relation("MovimientoDestino", fields: [puntoDestinoId], references: [id])
+  proveedor         Proveedor?         @relation(fields: [proveedorId], references: [id])
+  usuario           User               @relation("MovimientoUsuario", fields: [usuarioId], references: [id])
+  solicitud         Solicitud?         @relation("MovimientoSolicitud", fields: [solicitudId], references: [id])
+  anuladoPor        User?              @relation("MovimientoAnulador", fields: [anuladoPorId], references: [id])
+  detalles          MovimientoDetalle[]
+
+  @@index([tipoMovimientoId])
+  @@index([puntoOrigenId])
+  @@index([puntoDestinoId])
+  @@index([usuarioId])
+  @@index([fecha])
+  @@map("movimientos")
+}
+
+model MovimientoDetalle {
+  id             String     @id @default(uuid())
+  movimientoId   String     @map("movimiento_id")
+  productoId     String     @map("producto_id")
+  cantidad       Decimal    @db.Decimal(15, 3)
+  costoUnitario  Decimal    @default(0) @map("costo_unitario") @db.Decimal(15, 2)
+  tipoLinea      String     @default("movimiento") @map("tipo_linea") @db.VarChar(20)
+  // "movimiento", "consumo", "produccion"
+
+  movimiento     Movimiento @relation(fields: [movimientoId], references: [id], onDelete: Cascade)
+  producto       Producto   @relation(fields: [productoId], references: [id])
+
+  @@index([movimientoId])
+  @@index([productoId])
+  @@map("movimiento_detalle")
+}
+
+// ============================================
+// SOLICITUDES
+// ============================================
+
+model Solicitud {
+  id                   String             @id @default(uuid())
+  numero               String             @unique @db.VarChar(20)
+  tipo                 String             @db.VarChar(20) // "pedido", "envio", "devolucion", "transferencia"
+  solicitanteId        String             @map("solicitante_id")
+  puntoOrigenId        String             @map("punto_origen_id")
+  puntoDestinoId       String             @map("punto_destino_id")
+  estado               String             @default("pendiente") @db.VarChar(20)
+  // "pendiente", "aprobada", "rechazada", "entregada", "cancelada"
+  prioridad            String             @default("normal") @db.VarChar(10)
+  observacionSolicitud String?            @map("observacion_solicitud") @db.Text
+  observacionRespuesta String?            @map("observacion_respuesta") @db.Text
+  aprobadoPorId        String?            @map("aprobado_por_id")
+  fechaSolicitud       DateTime           @default(now()) @map("fecha_solicitud")
+  fechaRespuesta       DateTime?          @map("fecha_respuesta")
+  fechaEntrega         DateTime?          @map("fecha_entrega")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  solicitante          User               @relation("SolicitudSolicitante", fields: [solicitanteId], references: [id])
+  puntoOrigen          PuntoStock         @relation("SolicitudOrigen", fields: [puntoOrigenId], references: [id])
+  puntoDestino         PuntoStock         @relation("SolicitudDestino", fields: [puntoDestinoId], references: [id])
+  aprobadoPor          User?              @relation("SolicitudAprobador", fields: [aprobadoPorId], references: [id])
+  detalles             SolicitudDetalle[]
+  movimientos          Movimiento[]       @relation("MovimientoSolicitud")
+
+  @@index([estado])
+  @@index([puntoOrigenId])
+  @@index([puntoDestinoId])
+  @@index([solicitanteId])
+  @@index([fechaSolicitud])
+  @@map("solicitudes")
+}
+
+model SolicitudDetalle {
+  id                  String    @id @default(uuid())
+  solicitudId         String    @map("solicitud_id")
+  productoId          String    @map("producto_id")
+  cantidadSolicitada  Decimal   @map("cantidad_solicitada") @db.Decimal(15, 3)
+  cantidadAprobada    Decimal?  @map("cantidad_aprobada") @db.Decimal(15, 3)
+  observacion         String?   @db.Text
+
+  solicitud           Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  producto            Producto  @relation(fields: [productoId], references: [id])
+
+  @@index([solicitudId])
+  @@index([productoId])
+  @@map("solicitud_detalle")
+}
+
+// ============================================
+// NOTIFICACIONES
+// ============================================
+
+model Notificacion {
+  id              String   @id @default(uuid())
+  usuarioId       String   @map("usuario_id")
+  titulo          String   @db.VarChar(200)
+  mensaje         String?  @db.Text
+  tipo            String   @db.VarChar(50)
+  referenciaTipo  String?  @map("referencia_tipo") @db.VarChar(50)
+  referenciaId    String?  @map("referencia_id")
+  leida           Boolean  @default(false)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  usuario         User     @relation(fields: [usuarioId], references: [id])
+
+  @@index([usuarioId, leida])
+  @@index([createdAt])
+  @@map("notificaciones")
+}
+
+// ============================================
+// AUDITORIA
+// ============================================
+
+model LogAuditoria {
+  id               String   @id @default(uuid())
+  usuarioId        String?  @map("usuario_id")
+  accion           String   @db.VarChar(50)
+  tablaAfectada    String?  @map("tabla_afectada") @db.VarChar(100)
+  registroId       String?  @map("registro_id")
+  datosAnteriores  Json?    @map("datos_anteriores")
+  datosNuevos      Json?    @map("datos_nuevos")
+  ip               String?  @db.VarChar(45)
+  userAgent        String?  @map("user_agent") @db.VarChar(500)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  usuario          User?    @relation(fields: [usuarioId], references: [id])
+
+  @@index([usuarioId])
+  @@index([tablaAfectada, registroId])
+  @@index([createdAt])
+  @@map("log_auditoria")
+}
+
+// ============================================
+// CONFIGURACION
+// ============================================
+
+model Configuracion {
+  id          String   @id @default(uuid())
+  clave       String   @unique @db.VarChar(100)
+  valor       Json
+  descripcion String?  @db.Text
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("configuracion")
+}
