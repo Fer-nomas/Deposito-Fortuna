@@ -3,7 +3,7 @@
 import { DashboardShell } from '@/components/layout/dashboard-shell'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Warehouse,
@@ -18,8 +18,13 @@ import {
   ChevronUp,
   RefreshCw,
   DollarSign,
+  FileSpreadsheet,
+  ArrowUpDown,
+  SlidersHorizontal,
+  X,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
+import { exportarDepositoExcel, exportarTodoExcel, type PuntoExport } from '@/lib/export-excel'
 
 const iconMap: Record<string, React.ComponentType<any>> = {
   warehouse: Warehouse,
@@ -59,13 +64,73 @@ interface PuntoStockData {
   items: StockItem[]
 }
 
+type OrdenItems = 'az' | 'za' | 'codigo' | 'cantidad_asc' | 'cantidad_desc'
+
+interface FiltroDeposito {
+  texto: string
+  clasificacion: string
+  orden: OrdenItems
+  soloStockBajo: boolean
+  mostrarFiltros: boolean
+}
+
+const defaultFiltro: FiltroDeposito = {
+  texto: '',
+  clasificacion: '',
+  orden: 'az',
+  soloStockBajo: false,
+  mostrarFiltros: false,
+}
+
+function aplicarFiltros(items: StockItem[], filtro: FiltroDeposito): StockItem[] {
+  let resultado = [...items]
+
+  if (filtro.texto) {
+    const q = filtro.texto.toLowerCase()
+    resultado = resultado.filter(
+      (i) =>
+        i.descripcion.toLowerCase().startsWith(q) ||
+        i.codigo.toLowerCase().startsWith(q) ||
+        i.descripcion.toLowerCase().includes(q) ||
+        (i.clasificacion?.toLowerCase().includes(q) ?? false)
+    )
+  }
+
+  if (filtro.clasificacion) {
+    resultado = resultado.filter((i) => i.clasificacion === filtro.clasificacion)
+  }
+
+  if (filtro.soloStockBajo) {
+    resultado = resultado.filter((i) => i.stockBajo)
+  }
+
+  switch (filtro.orden) {
+    case 'az':
+      resultado.sort((a, b) => a.descripcion.localeCompare(b.descripcion, 'es'))
+      break
+    case 'za':
+      resultado.sort((a, b) => b.descripcion.localeCompare(a.descripcion, 'es'))
+      break
+    case 'codigo':
+      resultado.sort((a, b) => a.codigo.localeCompare(b.codigo))
+      break
+    case 'cantidad_asc':
+      resultado.sort((a, b) => a.cantidad - b.cantidad)
+      break
+    case 'cantidad_desc':
+      resultado.sort((a, b) => b.cantidad - a.cantidad)
+      break
+  }
+
+  return resultado
+}
+
 export default function StockPage() {
   const [puntos, setPuntos] = useState<PuntoStockData[]>([])
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [expandidos, setExpandidos] = useState<Record<string, boolean>>({})
-  const [busqueda, setBusqueda] = useState('')
-  const [soloStockBajo, setSoloStockBajo] = useState(false)
+  const [filtros, setFiltros] = useState<Record<string, FiltroDeposito>>({})
 
   const fetchStock = async () => {
     setLoading(true)
@@ -75,7 +140,6 @@ export default function StockPage() {
         const data = await res.json()
         setPuntos(data.puntos || [])
         setLastUpdated(new Date())
-        // Expandir todos por defecto
         const expanded: Record<string, boolean> = {}
         for (const p of data.puntos || []) expanded[p.id] = true
         setExpandidos(expanded)
@@ -93,30 +157,53 @@ export default function StockPage() {
     setExpandidos((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
+  const getFiltro = useCallback(
+    (id: string): FiltroDeposito => filtros[id] ?? defaultFiltro,
+    [filtros]
+  )
+
+  const setFiltro = useCallback(
+    (id: string, changes: Partial<FiltroDeposito>) => {
+      setFiltros((prev) => ({
+        ...prev,
+        [id]: { ...(prev[id] ?? defaultFiltro), ...changes },
+      }))
+    },
+    []
+  )
+
   const puntosFiltrados = useMemo(() => {
     return puntos.map((p) => {
-      let items = p.items
-      if (busqueda) {
-        const q = busqueda.toLowerCase()
-        items = items.filter(
-          (i) =>
-            i.descripcion.toLowerCase().includes(q) ||
-            i.codigo.toLowerCase().includes(q) ||
-            (i.clasificacion?.toLowerCase().includes(q) ?? false)
-        )
-      }
-      if (soloStockBajo) {
-        items = items.filter((i) => i.stockBajo)
-      }
+      const filtro = getFiltro(p.id)
+      const items = aplicarFiltros(p.items, filtro)
       return { ...p, items, totalProductos: items.length }
-    }).filter((p) => p.items.length > 0 || (!busqueda && !soloStockBajo))
-  }, [puntos, busqueda, soloStockBajo])
+    })
+  }, [puntos, filtros, getFiltro])
 
   const totales = useMemo(() => ({
     productos: puntos.reduce((a, p) => a + p.totalProductos, 0),
     valorizado: puntos.reduce((a, p) => a + p.valorizado, 0),
     alertas: puntos.reduce((a, p) => a + p.stockBajo, 0),
   }), [puntos])
+
+  const handleExportarTodo = () => {
+    const data: PuntoExport[] = puntos.map((p) => ({
+      nombre: p.nombre,
+      codigo: p.codigo,
+      valorizado: p.valorizado,
+      items: p.items,
+    }))
+    exportarTodoExcel(data)
+  }
+
+  const handleExportarDeposito = (punto: PuntoStockData, itemsFiltrados: StockItem[]) => {
+    exportarDepositoExcel({
+      nombre: punto.nombre,
+      codigo: punto.codigo,
+      valorizado: itemsFiltrados.reduce((a, i) => a + i.valorTotal, 0),
+      items: itemsFiltrados,
+    })
+  }
 
   return (
     <DashboardShell>
@@ -125,7 +212,7 @@ export default function StockPage() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-start justify-between"
+          className="flex items-start justify-between gap-3 flex-wrap"
         >
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Stock Actual</h1>
@@ -135,14 +222,24 @@ export default function StockPage() {
                 : 'Cargando...'}
             </p>
           </div>
-          <button
-            onClick={fetchStock}
-            disabled={loading}
-            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Actualizar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportarTodo}
+              disabled={loading || puntos.length === 0}
+              className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-40"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              Exportar todo
+            </button>
+            <button
+              onClick={fetchStock}
+              disabled={loading}
+              className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Actualizar
+            </button>
+          </div>
         </motion.div>
 
         {/* Resumen */}
@@ -187,36 +284,6 @@ export default function StockPage() {
           </div>
         </motion.div>
 
-        {/* Filtros */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.15 }}
-          className="flex flex-wrap items-center gap-3"
-        >
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Buscar producto o código..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm text-gray-800 placeholder-gray-400 focus:border-indigo-500 focus:outline-none"
-            />
-          </div>
-          <button
-            onClick={() => setSoloStockBajo((v) => !v)}
-            className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition-colors ${
-              soloStockBajo
-                ? 'border-red-500/50 bg-red-50 text-red-500'
-                : 'border-gray-200 bg-gray-50 text-gray-400 hover:bg-gray-100'
-            }`}
-          >
-            <AlertTriangle className="h-4 w-4" />
-            Solo stock bajo
-          </button>
-        </motion.div>
-
         {/* Lista por depósito */}
         {loading && puntos.length === 0 ? (
           <div className="space-y-4">
@@ -229,6 +296,17 @@ export default function StockPage() {
             {puntosFiltrados.map((punto, idx) => {
               const Icon = iconMap[punto.icono || ''] || Warehouse
               const expandido = expandidos[punto.id] ?? true
+              const filtro = getFiltro(punto.id)
+              const clasificacionesUnicas = [
+                ...new Set(
+                  puntos
+                    .find((p) => p.id === punto.id)
+                    ?.items.map((i) => i.clasificacion)
+                    .filter(Boolean) as string[]
+                ),
+              ].sort()
+              const hayFiltrosActivos =
+                filtro.texto || filtro.clasificacion || filtro.soloStockBajo || filtro.orden !== 'az'
 
               return (
                 <motion.div
@@ -239,22 +317,19 @@ export default function StockPage() {
                   className="rounded-xl border border-gray-200 bg-white overflow-hidden"
                 >
                   {/* Header del punto */}
-                  <button
-                    onClick={() => togglePunto(punto.id)}
-                    className="flex w-full items-center justify-between p-5 text-left hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex items-center gap-4">
+                  <div className="flex w-full items-center justify-between p-5">
+                    <button
+                      onClick={() => togglePunto(punto.id)}
+                      className="flex flex-1 items-center gap-4 text-left"
+                    >
                       <div
-                        className="rounded-lg p-2.5"
+                        className="rounded-lg p-2.5 shrink-0"
                         style={{ backgroundColor: `${punto.color || '#6366f1'}15` }}
                       >
-                        <Icon
-                          className="h-5 w-5"
-                          style={{ color: punto.color || '#6366f1' }}
-                        />
+                        <Icon className="h-5 w-5" style={{ color: punto.color || '#6366f1' }} />
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-semibold text-gray-900">{punto.nombre}</h3>
                           <span className="text-xs text-gray-400">{punto.codigo}</span>
                           {punto.stockBajo > 0 && (
@@ -264,19 +339,133 @@ export default function StockPage() {
                             </Badge>
                           )}
                         </div>
-                        <div className="flex items-center gap-4 text-xs text-gray-500">
-                          <span>{punto.totalProductos} productos</span>
+                        <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
+                          <span>{punto.totalProductos} productos{hayFiltrosActivos ? ' (filtrado)' : ''}</span>
                           <span>₲ {formatCurrency(punto.valorizado)}</span>
                           {punto.encargado && <span>Encargado: {punto.encargado}</span>}
                         </div>
                       </div>
+                    </button>
+
+                    {/* Acciones del depósito */}
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <button
+                        onClick={() => setFiltro(punto.id, { mostrarFiltros: !filtro.mostrarFiltros })}
+                        className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                          filtro.mostrarFiltros || hayFiltrosActivos
+                            ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
+                            : 'border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100'
+                        }`}
+                        title="Filtros"
+                      >
+                        <SlidersHorizontal className="h-3.5 w-3.5" />
+                        Filtros
+                        {hayFiltrosActivos && (
+                          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500 text-[10px] font-bold text-white">
+                            {[filtro.texto, filtro.clasificacion, filtro.soloStockBajo, filtro.orden !== 'az'].filter(Boolean).length}
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleExportarDeposito(punto, punto.items)}
+                        disabled={punto.items.length === 0}
+                        className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-40"
+                        title="Exportar Excel"
+                      >
+                        <FileSpreadsheet className="h-3.5 w-3.5" />
+                        Excel
+                      </button>
+                      <button onClick={() => togglePunto(punto.id)} className="p-1 text-gray-400">
+                        {expandido ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
                     </div>
-                    {expandido ? (
-                      <ChevronUp className="h-4 w-4 text-gray-500 shrink-0" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-gray-500 shrink-0" />
+                  </div>
+
+                  {/* Panel de filtros */}
+                  <AnimatePresence>
+                    {filtro.mostrarFiltros && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="border-t border-gray-100 bg-gray-50 px-5 py-3 flex flex-wrap items-center gap-3">
+                          {/* Búsqueda por texto */}
+                          <div className="relative min-w-[180px]">
+                            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+                            <input
+                              type="text"
+                              placeholder="Buscar o empieza con..."
+                              value={filtro.texto}
+                              onChange={(e) => setFiltro(punto.id, { texto: e.target.value })}
+                              className="w-full rounded-md border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-xs text-gray-800 placeholder-gray-400 focus:border-indigo-400 focus:outline-none"
+                            />
+                          </div>
+
+                          {/* Clasificación */}
+                          <select
+                            value={filtro.clasificacion}
+                            onChange={(e) => setFiltro(punto.id, { clasificacion: e.target.value })}
+                            className="rounded-md border border-gray-200 bg-white py-1.5 pl-2.5 pr-7 text-xs text-gray-700 focus:border-indigo-400 focus:outline-none"
+                          >
+                            <option value="">Todas las clasificaciones</option>
+                            {clasificacionesUnicas.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+
+                          {/* Orden */}
+                          <div className="flex items-center gap-1">
+                            <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
+                            <select
+                              value={filtro.orden}
+                              onChange={(e) => setFiltro(punto.id, { orden: e.target.value as OrdenItems })}
+                              className="rounded-md border border-gray-200 bg-white py-1.5 pl-2.5 pr-7 text-xs text-gray-700 focus:border-indigo-400 focus:outline-none"
+                            >
+                              <option value="az">A → Z</option>
+                              <option value="za">Z → A</option>
+                              <option value="codigo">Por código</option>
+                              <option value="cantidad_desc">Mayor cantidad</option>
+                              <option value="cantidad_asc">Menor cantidad</option>
+                            </select>
+                          </div>
+
+                          {/* Stock bajo */}
+                          <button
+                            onClick={() => setFiltro(punto.id, { soloStockBajo: !filtro.soloStockBajo })}
+                            className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${
+                              filtro.soloStockBajo
+                                ? 'border-red-400/50 bg-red-50 text-red-500'
+                                : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-100'
+                            }`}
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                            Solo stock bajo
+                          </button>
+
+                          {/* Limpiar filtros */}
+                          {hayFiltrosActivos && (
+                            <button
+                              onClick={() =>
+                                setFiltro(punto.id, {
+                                  texto: '',
+                                  clasificacion: '',
+                                  orden: 'az',
+                                  soloStockBajo: false,
+                                })
+                              }
+                              className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
+                            >
+                              <X className="h-3 w-3" />
+                              Limpiar
+                            </button>
+                          )}
+                        </div>
+                      </motion.div>
                     )}
-                  </button>
+                  </AnimatePresence>
 
                   {/* Tabla de stock */}
                   <AnimatePresence>
@@ -290,7 +479,7 @@ export default function StockPage() {
                       >
                         {punto.items.length === 0 ? (
                           <div className="border-t border-gray-200 px-5 py-8 text-center text-sm text-gray-400">
-                            Sin stock en este punto
+                            {hayFiltrosActivos ? 'Sin resultados para los filtros aplicados' : 'Sin stock en este punto'}
                           </div>
                         ) : (
                           <div className="overflow-x-auto border-t border-gray-200">
