@@ -1,5 +1,13 @@
 import * as XLSX from 'xlsx'
 
+function gs(value: number): string {
+  return `₲ ${value.toLocaleString('es-PY')}`
+}
+
+function num(value: number): string {
+  return value.toLocaleString('es-PY')
+}
+
 export interface StockItemExport {
   codigo: string
   descripcion: string
@@ -42,15 +50,15 @@ function buildSheet(punto: PuntoExport, fecha: string): XLSX.WorkSheet {
       i.codigo,
       i.descripcion,
       i.clasificacion ?? '—',
-      i.cantidad,
+      num(i.cantidad),
       i.unidad,
-      i.costoCompra,
-      i.valorTotal,
-      i.stockMinimo > 0 ? i.stockMinimo : '—',
+      gs(i.costoCompra),
+      gs(i.valorTotal),
+      i.stockMinimo > 0 ? num(i.stockMinimo) : '—',
       i.stockBajo ? 'STOCK BAJO' : 'OK',
     ]),
     [],
-    ['', '', '', '', '', 'TOTAL VALORIZADO:', punto.valorizado, '', ''],
+    ['', '', '', '', '', 'TOTAL VALORIZADO:', gs(punto.valorizado), '', ''],
   ]
 
   const ws = XLSX.utils.aoa_to_sheet(rows)
@@ -87,9 +95,9 @@ export function exportarTodoExcel(puntos: PuntoExport[]) {
     [`Fecha de emisión: ${fecha}`],
     [],
     ['Depósito', 'Código', 'Total Productos', 'Valorizado (₲)'],
-    ...puntos.map((p) => [p.nombre, p.codigo, p.items.length, p.valorizado]),
+    ...puntos.map((p) => [p.nombre, p.codigo, num(p.items.length), gs(p.valorizado)]),
     [],
-    ['TOTAL', '', totalProductos, totalValorizado],
+    ['TOTAL', '', num(totalProductos), gs(totalValorizado)],
   ]
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows)
   wsSummary['!cols'] = [{ wch: 25 }, { wch: 8 }, { wch: 16 }, { wch: 18 }]
