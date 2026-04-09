@@ -22,6 +22,7 @@ import {
   Menu,
   Layers,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/auth-store'
 
 const menuItems = [
@@ -43,7 +44,14 @@ const adminItems = [
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const pathname = usePathname()
+  const router = useRouter()
   const { user, logout } = useAuthStore()
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    logout()
+    router.push('/login')
+  }
 
   return (
     <motion.aside
@@ -188,7 +196,7 @@ export function Sidebar() {
           </AnimatePresence>
           {!collapsed && (
             <button
-              onClick={logout}
+              onClick={handleLogout}
               className="text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
               title="Cerrar sesión"
             >
