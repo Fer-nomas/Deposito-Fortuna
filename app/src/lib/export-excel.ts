@@ -55,6 +55,12 @@ function buildSheet(punto: PuntoExport, fecha: string): XLSX.WorkSheet {
 
   const ws = XLSX.utils.aoa_to_sheet(rows)
   ws['!cols'] = COLS
+  // Merge cabezal: filas 1-3 abarcan todas las columnas (A-I)
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 8 } },
+  ]
   return ws
 }
 
@@ -87,6 +93,11 @@ export function exportarTodoExcel(puntos: PuntoExport[]) {
   ]
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows)
   wsSummary['!cols'] = [{ wch: 25 }, { wch: 8 }, { wch: 16 }, { wch: 18 }]
+  wsSummary['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } },
+  ]
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen')
 
   // Una hoja por depósito
