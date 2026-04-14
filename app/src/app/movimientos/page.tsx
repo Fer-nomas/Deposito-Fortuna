@@ -20,6 +20,7 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import { useEffect, useState, useCallback } from 'react'
+import { ProductSearchSelect } from '@/components/ui/product-search-select'
 
 interface TipoMovimiento {
   id: string
@@ -1073,19 +1074,15 @@ function DetalleRow({
       className="space-y-1"
     >
       <div className="flex items-center gap-2">
-      <select
-        className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 transition-all duration-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-300 hover:border-gray-300"
+      <ProductSearchSelect
         value={detalle.productoId}
-        onChange={(e) => onUpdate(index, 'productoId', e.target.value)}
-      >
-        <option value="">Seleccionar producto...</option>
-        {productos.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.codigo} - {p.descripcion}
-            {stockEnOrigen[p.id] != null ? ` (stock: ${stockEnOrigen[p.id]})` : ''}
-          </option>
-        ))}
-      </select>
+        onChange={(val) => onUpdate(index, 'productoId', val)}
+        products={productos.map((p) => ({
+          ...p,
+          stock: stockEnOrigen[p.id] ?? null,
+        }))}
+        className="flex-1"
+      />
       <input
         type="number"
         placeholder="Cant."

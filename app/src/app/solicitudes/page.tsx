@@ -29,6 +29,7 @@ import {
   Truck,
   Filter,
 } from 'lucide-react'
+import { ProductSearchSelect } from '@/components/ui/product-search-select'
 
 // Types
 interface PuntoStock {
@@ -822,22 +823,12 @@ export default function SolicitudesPage() {
             <div className="space-y-2">
               {formDetalles.map((det, idx) => (
                 <div key={idx} className="flex items-center gap-3">
-                  <select
+                  <ProductSearchSelect
                     value={det.productoId}
-                    onChange={(e) =>
-                      updateDetalle(idx, 'productoId', e.target.value)
-                    }
-                    className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
-                  >
-                    <option value="" className="bg-white">
-                      Seleccionar producto...
-                    </option>
-                    {productos.map((p) => (
-                      <option key={p.id} value={p.id} className="bg-white">
-                        {p.codigo} - {p.descripcion}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => updateDetalle(idx, 'productoId', val)}
+                    products={productos}
+                    className="flex-1"
+                  />
                   <input
                     type="number"
                     min={0.001}
